@@ -9,36 +9,44 @@ if [ ! -d "$LIB_DIR" ]; then
   exit 0
 fi
 
-# Remove bulky, unused components.
-rm -rf \
-  "$LIB_DIR/bin" \
-  "$LIB_DIR/targets" \
-  "$LIB_DIR/doc" \
-  "$LIB_DIR/libopenssl" \
-  "$LIB_DIR/libpthreads4w" \
-  "$LIB_DIR/build" \
-  "$LIB_DIR/build.sh" \
-  "$LIB_DIR/build.cmd"
+# Remove everything except the trees we actually compile.
+find "$LIB_DIR" -maxdepth 1 -mindepth 1 -type d \
+  ! -name src \
+  ! -name crosstools \
+  ! -name dmap-parser \
+  ! -name libmdns \
+  ! -name libcodecs \
+  ! -name ".prepared" \
+  -exec rm -rf {} +
 
 # Keep only the ALAC codec from libcodecs.
 if [ -d "$LIB_DIR/libcodecs" ]; then
-  find "$LIB_DIR/libcodecs" -maxdepth 1 -type d \
-    ! -name "libcodecs" \
-    ! -name "alac" \
+  find "$LIB_DIR/libcodecs" -maxdepth 1 -mindepth 1 -type d \
+    ! -name alac \
     -exec rm -rf {} +
 
-  # Inside alac, keep only codec sources.
   if [ -d "$LIB_DIR/libcodecs/alac" ]; then
-    find "$LIB_DIR/libcodecs/alac" -maxdepth 1 -type d \
-      ! -name "alac" \
-      ! -name "codec" \
+    find "$LIB_DIR/libcodecs/alac" -maxdepth 1 -mindepth 1 -type d \
+      ! -name codec \
       -exec rm -rf {} +
   fi
 fi
 
-# Trim curve25519 to source/include only (needed for pairing).
-# Current build does not consume curve25519 sources directly; drop the whole tree to shrink tarball.
-rm -rf "$LIB_DIR/curve25519"
+# Keep only mdnssvc and mdnssd inside libmdns.
+if [ -d "$LIB_DIR/libmdns" ]; then
+  find "$LIB_DIR/libmdns" -maxdepth 1 -mindepth 1 -type d \
+    ! -name mdnssvc \
+    ! -name mdnssd \
+    -exec rm -rf {} +
+fi
+
+# In dmap-parser, drop subdirectories (keep top-level sources).
+if [ -d "$LIB_DIR/dmap-parser" ]; then
+  find "$LIB_DIR/dmap-parser" -maxdepth 1 -mindepth 1 -type d -exec rm -rf {} +
+fi
+
+# Remove any remaining git metadata.
+find "$LIB_DIR" -name ".git" -type d -prune -exec rm -rf {} +
 
 # Remove any remaining git metadata.
 find "$LIB_DIR" -name ".git" -type d -prune -exec rm -rf {} +
