@@ -42,7 +42,7 @@ patch_cross_log() {
   if [ -f "$hdr" ] && ! grep -q "cross_set_logger" "$hdr"; then
     python3 - "$hdr" <<'PY'
 from pathlib import Path
-hdr = Path(__file__).parent.parent / "crosstools/src/cross_log.h"
+hdr = Path("$LIB_DIR") / "crosstools/src/cross_log.h"
 text = hdr.read_text()
 text = text.replace(
     "void logprint(const char *fmt, ...);\nlog_level debug2level",
@@ -70,7 +70,7 @@ PY
   if [ -f "$src" ] && ! grep -q "cross_set_logger" "$src"; then
     python3 - "$src" <<'PY'
 from pathlib import Path
-src = Path(__file__).parent.parent / "crosstools/src/cross_log.c"
+src = Path("$LIB_DIR") / "crosstools/src/cross_log.c"
 src.write_text(r'''/*
  * Logging utilities
  *
