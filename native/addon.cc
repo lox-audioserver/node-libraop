@@ -162,12 +162,12 @@ static void EnsurePlatformInitialized(Napi::Env env) {
   std::call_once(g_platform_once, [&]() {
     netsock_init();
     cross_ssl_load();
-    Napi::AddEnvironmentCleanupHook(env, ShutdownPlatform, nullptr);
+    env.AddCleanupHook([] { ShutdownPlatform(nullptr); });
     std::call_once(g_sender_cleanup_once, [&]() {
-      Napi::AddEnvironmentCleanupHook(env, CleanupSenders, nullptr);
+      env.AddCleanupHook([] { CleanupSenders(nullptr); });
     });
     std::call_once(g_receiver_cleanup_once, [&]() {
-      Napi::AddEnvironmentCleanupHook(env, CleanupReceivers, nullptr);
+      env.AddCleanupHook([] { CleanupReceivers(nullptr); });
     });
   });
 }
@@ -766,7 +766,7 @@ Napi::Value SetLogHandler(const Napi::CallbackInfo& info) {
         Napi::ThreadSafeFunction::New(env, cb, "raop_log", 0, 1));
     cross_set_logger(&LogSink);
     std::call_once(g_log_cleanup_once, [&]() {
-      Napi::AddEnvironmentCleanupHook(env, ClearLogHandler, nullptr);
+      env.AddCleanupHook([] { ClearLogHandler(nullptr); });
     });
   } else {
     cross_set_logger(nullptr);
