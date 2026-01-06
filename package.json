@@ -1,5 +1,5 @@
 {
-  "name": "node-libraop",
+  "name": "@lox-audioserver/node-libraop",
   "version": "0.1.0",
   "description": "Node.js bindings for the libraop RAOP (AirPlay 1) receiver with prebuilt binaries.",
   "main": "dist/index.js",
@@ -44,7 +44,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/rudyberends/node-libraop"
+    "url": "https://github.com/lox-audioserver/node-libraop"
   },
   "license": "Apache-2.0",
   "binary": {

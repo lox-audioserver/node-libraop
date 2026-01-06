@@ -8,14 +8,14 @@ Node bindings for the [libraop](https://github.com/philippe44/libraop) RAOP (Air
 
 ## Installation
 ```bash
-npm install node-libraop
+npm install @lox-audioserver/node-libraop
 ```
 
 Prebuilt `.node` binaries are downloaded via `node-gyp-build` at runtime. If a prebuild is not available for your platform, the package will fall back to building from the vendored sources.
 
 ## Usage
 ```ts
-import { startReceiver, stopReceiver, RaopEvent } from 'node-libraop';
+import { startReceiver, stopReceiver, RaopEvent } from '@lox-audioserver/node-libraop';
 
 const handle = startReceiver(
   {
@@ -51,7 +51,7 @@ process.on('SIGINT', () => {
 
 ### Sending to an AirPlay target (PCM)
 ```ts
-import { startSender, sendChunk, stopSender } from 'node-libraop';
+import { startSender, sendChunk, stopSender } from '@lox-audioserver/node-libraop';
 import fs from 'node:fs';
 
 const sender = startSender({ target: '192.168.1.50', port: 5000, sampleRate: 44100, channels: 2 });
@@ -69,7 +69,7 @@ pcmStream.on('end', () => stopSender(sender));
 ### Sender pacing and health
 Use `getSenderState` to check connectivity and buffer depth before pushing audio:
 ```ts
-import { startSender, getSenderState, sendChunk } from 'node-libraop';
+import { startSender, getSenderState, sendChunk } from '@lox-audioserver/node-libraop';
 
 const sender = startSender({ target: '192.168.1.50', port: 5000 });
 
