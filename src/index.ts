@@ -1,63 +1,22 @@
 import path from 'node:path';
 import nodeGypBuild from 'node-gyp-build';
+import { EventHandler, LogEntry, LogLevel, ReceiverOptions, RaopEvent, SendResult, SenderOptions, SenderState } from './types';
 
 type NativeBindings = {
   startReceiver(options: Record<string, unknown>, handler: (event: RaopEvent) => void): number;
   stopReceiver(handle: number): void;
+  startSender(options: Record<string, unknown>): number;
+  stopSender(handle: number): void;
+  sendChunk(handle: number, pcm: Buffer): SendResult;
+  getSenderState(handle: number): SenderState;
+  setLogHandler(handler: ((entry: LogEntry) => void) | null, level?: LogLevel, raopLevel?: LogLevel, utilLevel?: LogLevel): void;
 };
 
 const bindings: NativeBindings = nodeGypBuild(path.join(__dirname, '..'));
 
-export type StreamEvent = { type: 'stream'; port: number };
-export type PlayEvent = { type: 'play' };
-export type FlushEvent = { type: 'flush' };
-export type PauseEvent = { type: 'pause' };
-export type StopEvent = { type: 'stop' };
-export type VolumeEvent = { type: 'volume'; value: number };
-export type MetadataEvent = {
-  type: 'metadata';
-  title?: string;
-  artist?: string;
-  album?: string;
-};
-export type ArtworkEvent = {
-  type: 'artwork';
-  title?: string;
-  artist?: string;
-  album?: string;
-  data: Buffer;
-};
-export type PcmEvent = {
-  type: 'pcm';
-  sampleRate: number;
-  channels: number;
-  data: Buffer;
-};
-
-export type RaopEvent =
-  | StreamEvent
-  | PlayEvent
-  | FlushEvent
-  | PauseEvent
-  | StopEvent
-  | VolumeEvent
-  | MetadataEvent
-  | ArtworkEvent
-  | PcmEvent;
-
-export type EventHandler = (event: RaopEvent) => void;
-
-export type ReceiverOptions = {
-  name?: string;
-  model?: string;
-  mac?: string;
-  latencies?: string;
-  metadata?: boolean;
-  portBase?: number;
-  portRange?: number;
-  host?: string;
-};
-
+/**
+ * Start a RAOP receiver. If only a handler is provided, libraop defaults are used.
+ */
 export function startReceiver(handler: EventHandler): number;
 export function startReceiver(options: ReceiverOptions, handler: EventHandler): number;
 export function startReceiver(optionsOrHandler: ReceiverOptions | EventHandler, handler?: EventHandler): number {
@@ -72,4 +31,36 @@ export function startReceiver(optionsOrHandler: ReceiverOptions | EventHandler, 
 
 export function stopReceiver(handle: number): void {
   bindings.stopReceiver(handle);
+}
+
+/**
+ * Connect to an AirPlay (RAOP) target for PCM sending.
+ */
+export function startSender(options: SenderOptions): number {
+  return bindings.startSender(options);
+}
+
+/**
+ * Attempt to enqueue a PCM chunk; returns queue/latency info and backpressure reason when not sent.
+ */
+export function sendChunk(handle: number, pcm: Buffer): SendResult {
+  return bindings.sendChunk(handle, pcm);
+}
+
+export function stopSender(handle: number): void {
+  bindings.stopSender(handle);
+}
+
+/**
+ * Read-only sender health snapshot without sending audio.
+ */
+export function getSenderState(handle: number): SenderState {
+  return bindings.getSenderState(handle);
+}
+
+/**
+ * Forward native libraop logs into JavaScript; pass null to disable.
+ */
+export function setLogHandler(handler: ((entry: LogEntry) => void) | null, level: LogLevel = 'warn', raopLevel?: LogLevel, utilLevel?: LogLevel): void {
+  bindings.setLogHandler(handler, level, raopLevel, utilLevel);
 }

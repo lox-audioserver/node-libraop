@@ -49,12 +49,64 @@ process.on('SIGINT', () => {
 });
 ```
 
+### Sending to an AirPlay target (PCM)
+```ts
+import { startSender, sendChunk, stopSender } from 'node-libraop';
+import fs from 'node:fs';
+
+const sender = startSender({ target: '192.168.1.50', port: 5000, sampleRate: 44100, channels: 2 });
+const pcmStream = fs.createReadStream('audio.pcm'); // 16-bit, little endian, stereo
+pcmStream.on('data', (chunk) => {
+  // Try to enqueue the chunk; if not ready yet the data is skipped
+  const result = sendChunk(sender, chunk);
+  if (!result.sent) {
+    console.warn('Sender not ready yet; waiting for queue to drain');
+  }
+});
+pcmStream.on('end', () => stopSender(sender));
+```
+
+### Sender pacing and health
+Use `getSenderState` to check connectivity and buffer depth before pushing audio:
+```ts
+import { startSender, getSenderState, sendChunk } from 'node-libraop';
+
+const sender = startSender({ target: '192.168.1.50', port: 5000 });
+
+function maybeSend(pcm: Buffer) {
+  const state = getSenderState(sender);
+  if (!state.connected) {
+    console.warn('Not connected yet');
+    return;
+  }
+  const result = sendChunk(sender, pcm);
+  if (!result.sent && result.reason === 'not-ready') {
+    // consider waiting result.latencyFrames / sampleRate seconds before retrying
+  }
+}
+```
+
 ### API
 - `startReceiver(options?, handler): number`  
   Starts the RAOP receiver. Returns a handle that you should pass to `stopReceiver`. The `handler` callback receives `RaopEvent` objects.
 
 - `stopReceiver(handle): void`  
   Stops the receiver associated with the provided handle.
+
+- `startSender(options): number`  
+  Connects to an AirPlay (RAOP) target and returns a handle used by `sendChunk`/`stopSender`.
+
+- `sendChunk(handle, pcmBuffer): SendResult`  
+  Attempts to enqueue a PCM chunk (16-bit, little endian). Returns whether it was sent, queue details, latency frames, and optional `reason` (`not-ready` or `disconnected`).
+
+- `stopSender(handle): void`  
+  Disconnects from the AirPlay target and frees resources.
+
+- `getSenderState(handle): SenderState`  
+  Returns connection status plus queue/latency stats without sending audio.
+
+- `setLogHandler(handler?, level?): void`  
+  Forward libraop native logs into JavaScript. Pass `null` to disable. Levels: `error`, `warn` (default), `info`, `debug`, `sdebug`. Optional per-channel override: `setLogHandler(fn, 'info', 'debug', 'warn')` sets default `info`, RAOP to `debug`, util to `warn`. Callback receives `{ level, source, timestamp, line }`.
 
 ### Options
 All fields are optional; libraop defaults are applied when omitted.
