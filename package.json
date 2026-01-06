@@ -1,0 +1,67 @@
+{
+  "name": "@lox-audioserver/node-libraop",
+  "version": "0.1.0",
+  "description": "Node.js bindings for the libraop RAOP (AirPlay 1) receiver with prebuilt binaries.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "prebuilds/**/*",
+    "binding.gyp",
+    "native/**/*",
+    "scripts/prepare-libraop.sh",
+    "scripts/prune-vendor.sh",
+    "vendor/libraop/src/**/*",
+    "vendor/libraop/crosstools/src/**/*",
+    "vendor/libraop/dmap-parser/*",
+    "vendor/libraop/libmdns/**/*",
+    "vendor/libraop/libcodecs/alac/codec/**/*",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "npm run build:types",
+    "build:types": "tsc --project tsconfig.json",
+    "build:native": "node-gyp rebuild",
+    "clean": "rm -rf dist build prebuilds *.log",
+    "build:prebuilds": "prebuildify --napi --strip",
+    "prune:vendor": "bash scripts/prune-vendor.sh",
+    "prepublishOnly": "npm run prune:vendor && npm run build",
+    "test": "echo \"No tests configured\""
+  },
+  "gypfile": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "airplay",
+    "raop",
+    "audio",
+    "libraop",
+    "napi"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lox-audioserver/node-libraop"
+  },
+  "license": "Apache-2.0",
+  "binary": {
+    "module_name": "raop_addon",
+    "napi_versions": [
+      8
+    ],
+    "package_name": "{module_name}-v{version}-{runtime}-napi-v{napi_build_version}-{platform}-{arch}.tar.gz"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.2.1",
+    "node-gyp-build": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "node-gyp": "^10.2.0",
+    "prebuildify": "^6.0.1",
+    "typescript": "^5.4.0"
+  }
+}

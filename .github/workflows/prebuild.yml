@@ -1,0 +1,160 @@
+name: Prebuilds
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  prebuild:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+            platform: linux
+          - os: ubuntu-latest
+            arch: arm64
+            platform: linux
+            use_qemu: true
+          - os: macos-15-intel
+            arch: x64
+            platform: darwin
+          - os: macos-latest
+            arch: arm64
+            platform: darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build on linux/arm64
+        if: matrix.use_qemu == 'true'
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: arm64
+          distro: ubuntu22.04
+          githubToken: ${{ github.token }}
+          env: |
+            NODE_VERSION=20
+          install: |
+            apt-get update
+            apt-get install -y curl ca-certificates python3 make g++ pkg-config libssl-dev
+            curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION%%.*}.x | bash -
+            apt-get install -y nodejs
+          run: |
+            npm ci
+            npm run build
+            npm run build:prebuilds -- --arch ${{ matrix.arch }} --platform ${{ matrix.platform }}
+            tar -czf prebuilds-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz prebuilds
+
+      - name: Setup Node.js
+        if: matrix.use_qemu != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          architecture: ${{ matrix.node_arch || 'x64' }}
+
+      - name: Install dependencies (Windows)
+        if: matrix.use_qemu != 'true' && matrix.os == 'windows-latest'
+        shell: pwsh
+        run: npm ci
+
+      - name: Install dependencies (Unix)
+        if: matrix.use_qemu != 'true' && matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install openssl@3
+            echo "LDFLAGS=-L/opt/homebrew/opt/openssl@3/lib -L/usr/local/opt/openssl@3/lib" >> $GITHUB_ENV
+            echo "CPPFLAGS=-I/opt/homebrew/opt/openssl@3/include -I/usr/local/opt/openssl@3/include" >> $GITHUB_ENV
+          fi
+          npm ci
+
+      - name: Build JS wrapper (Windows)
+        if: matrix.use_qemu != 'true' && matrix.os == 'windows-latest'
+        shell: pwsh
+        run: npm run build
+
+      - name: Build JS wrapper (Unix)
+        if: matrix.use_qemu != 'true' && matrix.os != 'windows-latest'
+        shell: bash
+        run: npm run build
+
+      - name: Install OpenSSL (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install openssl --no-progress -y
+          $env:Path = "$env:ProgramFiles\OpenSSL-Win64\bin;$env:Path"
+          $env:LIB = "$env:ProgramFiles\OpenSSL-Win64\lib;$env:LIB"
+          $env:INCLUDE = "$env:ProgramFiles\OpenSSL-Win64\include;$env:INCLUDE"
+          echo "LIB=$env:LIB" >> $env:GITHUB_ENV
+          echo "INCLUDE=$env:INCLUDE" >> $env:GITHUB_ENV
+          echo "Path=$env:Path" >> $env:GITHUB_ENV
+
+      - name: Build prebuilt binary (Windows)
+        if: matrix.use_qemu != 'true' && matrix.os == 'windows-latest'
+        shell: pwsh
+        run: npm run build:prebuilds -- --arch ${{ matrix.arch }} --platform ${{ matrix.platform }}
+
+      - name: Build prebuilt binary (Unix)
+        if: matrix.use_qemu != 'true' && matrix.os != 'windows-latest'
+        shell: bash
+        run: npm run build:prebuilds -- --arch ${{ matrix.arch }} --platform ${{ matrix.platform }}
+
+      - name: Package prebuilds
+        if: matrix.use_qemu != 'true'
+        run: tar -czf prebuilds-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz prebuilds
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: prebuilds-${{ matrix.platform }}-${{ matrix.arch }}
+          path: prebuilds-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+
+      - name: Attach to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: prebuilds-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+
+  publish:
+    needs: prebuild
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Download prebuild artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: prebuild-artifacts
+
+      - name: Unpack prebuilds
+        run: |
+          shopt -s nullglob
+          mkdir -p prebuilds
+          for f in prebuild-artifacts/*.tar.gz; do
+            tar -xzf "$f"
+          done
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build JS wrapper
+        run: npm run build
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
