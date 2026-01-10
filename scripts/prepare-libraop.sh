@@ -213,6 +213,18 @@ PY
   fi
 }
 
+patch_metadata_duration() {
+  local patch="$ROOT_DIR/scripts/patches/libraop-duration.patch"
+  if [ ! -f "$patch" ]; then
+    return
+  fi
+  if [ -f "$LIB_DIR/src/raop_server.h" ] && grep -q "duration_ms" "$LIB_DIR/src/raop_server.h"; then
+    return
+  fi
+  echo "Applying libraop duration metadata patch"
+  patch -p1 -d "$LIB_DIR" < "$patch"
+}
+
 required_paths=(
   "$LIB_DIR/src/raop_server.c"
   "$LIB_DIR/src/raop_streamer.c"
@@ -246,6 +258,7 @@ fi
 
 patch_libraop_for_msvc
 patch_cross_log
+patch_metadata_duration
 bash "$ROOT_DIR/scripts/prune-vendor.sh"
 
 touch "$LIB_DIR/.prepared"

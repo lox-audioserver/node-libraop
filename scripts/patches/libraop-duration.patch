@@ -1,0 +1,66 @@
+diff --git a/src/raop_server.h b/src/raop_server.h
+index 8616478..ddd71b2 100644
+--- a/src/raop_server.h
++++ b/src/raop_server.h
+@@ -17,6 +17,8 @@ typedef struct raopsr_metadata_s {
+ 	char* artist;
+ 	char* title;
+ 	char* album;
+ 	char* artwork;
++	uint32_t duration_ms;
++	bool duration_valid;
+ } raopsr_metadata_t;
+diff --git a/src/raop_server.c b/src/raop_server.c
+index 0ed9d66..539691e 100644
+--- a/src/raop_server.c
++++ b/src/raop_server.c
+@@ -78,6 +78,7 @@ typedef struct raopsr_s {
+ } raopsr_t;
+ 
+ static bool 	handle_rtsp(raopsr_t *ctx, int sock);
++static void on_dmap_uint32(void *ctx, const char *code, const char *name, uint32_t value);
+ static void 	event_cb(void *owner, raopst_event_t event);
+ static void 	http_cb(void *owner, struct key_data_s *headers, struct key_data_s *response);
+ static void* 	search_remote(void *args);
+@@ -294,6 +295,8 @@ void raopsr_metadata_free(raopsr_metadata_t* data) {
+ 	NFREE(data->artist);
+ 	NFREE(data->album);
+ 	NFREE(data->artwork);
++	data->duration_ms = 0;
++	data->duration_valid = false;
+ }
+ 
+ /*----------------------------------------------------------------------------*/
+@@ -302,6 +305,8 @@ void raopsr_metadata_copy(raopsr_metadata_t* dst, raopsr_metadata_t* src) {
+ 	if (src->artist) dst->artist = strdup(src->artist);
+ 	if (src->album) dst->album = strdup(src->album);
+ 	if (src->artwork) dst->artwork = strdup(src->artwork);
++	dst->duration_ms = src->duration_ms;
++	dst->duration_valid = src->duration_valid;
+ }
+ 
+ /*----------------------------------------------------------------------------*/
+@@ -544,7 +549,7 @@ static bool handle_rtsp(raopsr_t *ctx, int sock)
+ 
+ 		} else if (((p = kd_lookup(headers, "Content-Type")) != NULL) && !strcasecmp(p, "application/x-dmap-tagged")) {
+ 			dmap_settings settings = {
+-				NULL, NULL, NULL, NULL,	NULL, NULL,	NULL, on_dmap_string, NULL,
++				NULL, NULL, NULL, NULL,	on_dmap_uint32, NULL,	NULL, on_dmap_string, NULL,
+ 				NULL
+ 			};
+ 
+@@ -719,6 +724,16 @@ static void on_dmap_string(void *ctx, const char *code, const char *name, const c
+ 	else if (!strcasecmp(code, "asar")) metadata->artist = strndup(buf, len);
+ 	else if (!strcasecmp(code, "asal")) metadata->album = strndup(buf, len);
+ }
++
++/*----------------------------------------------------------------------------*/
++static void on_dmap_uint32(void *ctx, const char *code, const char *name, uint32_t value) {
++	raopsr_metadata_t *metadata = (raopsr_metadata_t *) ctx;
++
++	(void) name;
++	if (!strcasecmp(code, "astm") || !strcasecmp(code, "cast")) {
++		metadata->duration_ms = value;
++		metadata->duration_valid = true;
++	}
++}

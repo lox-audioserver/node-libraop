@@ -126,7 +126,7 @@ All fields are optional; libraop defaults are applied when omitted.
 - `stream` — `{ port }`: Emitted when a new stream announces the data port.
 - `play`, `pause`, `flush`, `stop`: Playback lifecycle events.
 - `volume` — `{ value }`: AirPlay volume updates.
-- `metadata` — `{ title?, artist?, album? }`: Track metadata.
+- `metadata` — `{ title?, artist?, album?, durationMs? }`: Track metadata (duration in milliseconds when available).
 - `artwork` — `{ data, title?, artist?, album? }`: Artwork bytes.
 - `pcm` — `{ sampleRate, channels, data }`: Raw PCM frames (16-bit signed).
 
