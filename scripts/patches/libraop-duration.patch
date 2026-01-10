@@ -1,46 +1,156 @@
 diff --git a/src/raop_server.h b/src/raop_server.h
 --- a/src/raop_server.h
 +++ b/src/raop_server.h
-@@ -17,6 +17,8 @@
+@@ -17,6 +17,10 @@
  	char* title;
  	char* album;
  	char* artwork;
 +	uint32_t duration_ms;
 +	bool duration_valid;
++	uint32_t elapsed_ms;
++	bool elapsed_valid;
  } raopsr_metadata_t;
-
+ 
  typedef enum { RAOP_STREAM, RAOP_PLAY, RAOP_FLUSH, RAOP_PAUSE, RAOP_STOP, RAOP_VOLUME, RAOP_METADATA, RAOP_ARTWORK } raopsr_event_t ;
+@@ -33,6 +37,7 @@
+ void	raopsr_update(struct raopsr_s *ctx, char *name, char *model);
+ void  	raopsr_delete(struct raopsr_s *ctx);
+ void	raopsr_notify(struct raopsr_s *ctx, raopsr_event_t event, void *param);
++bool	raopsr_remote_command(struct raopsr_s *ctx, const char *command);
+ 
+ void	raopsr_metadata_free(raopsr_metadata_t* data);
+ void	raopsr_metadata_copy(raopsr_metadata_t* dst, raopsr_metadata_t *src);
 
 diff --git a/src/raop_server.c b/src/raop_server.c
 --- a/src/raop_server.c
 +++ b/src/raop_server.c
 @@ -78,6 +78,7 @@
-
+ 
  enum { RSA_MODE_KEY, RSA_MODE_AUTH };
-
+ 
 +static void on_dmap_uint32(void *ctx, const char *code, const char *name, uint32_t value);
  static void on_dmap_string(void *ctx, const char *code, const char *name, const char *buf, size_t len);
-
+ 
  /*----------------------------------------------------------------------------*/
-@@ -295,6 +296,8 @@
+@@ -222,40 +223,12 @@
+ 
+ 
+ /*----------------------------------------------------------------------------*/
+-void  raopsr_notify(struct raopsr_s *ctx, raopsr_event_t event, void *param) {
++bool raopsr_remote_command(struct raopsr_s *ctx, const char *command) {
+ 	struct sockaddr_in addr;
+-	char *command = NULL;
+-
+-	if (!ctx) return;
+-
+-	switch(event) {
+-		case RAOP_PAUSE:
+-			command = strdup("pause");
+-			break;
+-		case RAOP_PLAY:
+-			command = strdup("play");
+-			break;
+-		case RAOP_STOP:
+-			command = strdup("stop");
+-			break;
+-		case RAOP_VOLUME: {
+-			double Volume = *((double*) param);
+-
+-			Volume = Volume ? (Volume - 1) * 30 : -144;
+-			(void)!asprintf(&command,"setproperty?dmcp.device-volume=%0.4lf", Volume);
+-			break;
+-		}
+-		default:
+-			break;
+-	}
+-
+-	// no command to send to remote or no remote found yet
+-	if (!command || !ctx->active_remote.port) {
+-
+-		NFREE(command);
+-
+-		return;
+-
++	bool sent = false;
++
++	if (!ctx || !command || !ctx->active_remote.port) {
++		return false;
+ 	}
+ 
+ 	int sock = socket(AF_INET, SOCK_STREAM, 0);
+@@ -282,12 +255,45 @@
+ 		NFREE(method);
+ 		NFREE(buf);
+ 		kd_free(headers);
+-	}
+-
+-	free(command);
++		sent = true;
++	}
+ 
+ 	closesocket(sock);
+-}
++	return sent;
++}
++
++void  raopsr_notify(struct raopsr_s *ctx, raopsr_event_t event, void *param) {
++	char *command = NULL;
++
++	if (!ctx) return;
++
++	switch(event) {
++		case RAOP_PAUSE:
++			command = strdup("pause");
++			break;
++		case RAOP_PLAY:
++			command = strdup("play");
++			break;
++		case RAOP_STOP:
++			command = strdup("stop");
++			break;
++		case RAOP_VOLUME: {
++			double Volume = *((double*) param);
++
++			Volume = Volume ? (Volume - 1) * 30 : -144;
++			(void)!asprintf(&command,"setproperty?dmcp.device-volume=%0.4lf", Volume);
++			break;
++		}
++		default:
++			break;
++	}
++
++	if (command) {
++		(void) raopsr_remote_command(ctx, command);
++		NFREE(command);
++	}
++}
++
+ 
+ /*----------------------------------------------------------------------------*/
+ void raopsr_metadata_free(raopsr_metadata_t* data) {
+@@ -295,6 +301,10 @@
  	NFREE(data->artist);
  	NFREE(data->album);
  	NFREE(data->artwork);
 +	data->duration_ms = 0;
 +	data->duration_valid = false;
++	data->elapsed_ms = 0;
++	data->elapsed_valid = false;
  }
-
+ 
  /*----------------------------------------------------------------------------*/
-@@ -303,6 +306,8 @@
+@@ -303,6 +313,10 @@
  	if (src->artist) dst->artist = strdup(src->artist);
  	if (src->album) dst->album = strdup(src->album);
  	if (src->artwork) dst->artwork = strdup(src->artwork);
 +	dst->duration_ms = src->duration_ms;
 +	dst->duration_valid = src->duration_valid;
++	dst->elapsed_ms = src->elapsed_ms;
++	dst->elapsed_valid = src->elapsed_valid;
  }
-
+ 
  /*----------------------------------------------------------------------------*/
-@@ -543,7 +548,7 @@
+@@ -543,7 +557,7 @@
  			ctx->raop_cb(ctx->owner, RAOP_VOLUME, volume);
  		} else if (((p = kd_lookup(headers, "Content-Type")) != NULL) && !strcasecmp(p, "application/x-dmap-tagged")) {
  			dmap_settings settings = {
@@ -48,11 +158,11 @@ diff --git a/src/raop_server.c b/src/raop_server.c
 +				NULL, NULL, NULL, NULL,	on_dmap_uint32, NULL,	NULL, on_dmap_string, NULL,
  				NULL
  			};
-
-@@ -719,3 +724,14 @@
+ 
+@@ -719,3 +733,18 @@
  	else if (!strcasecmp(code, "asal")) metadata->album = strndup(buf, len);
  }
-
+ 
 +/*----------------------------------------------------------------------------*/
 +static void on_dmap_uint32(void *ctx, const char *code, const char *name, uint32_t value) {
 +	raopsr_metadata_t *metadata = (raopsr_metadata_t *) ctx;
@@ -61,6 +171,10 @@ diff --git a/src/raop_server.c b/src/raop_server.c
 +	if (!strcasecmp(code, "astm") || !strcasecmp(code, "cast")) {
 +		metadata->duration_ms = value;
 +		metadata->duration_valid = true;
++	}
++	if (!strcasecmp(code, "cant")) {
++		metadata->elapsed_ms = value;
++		metadata->elapsed_valid = true;
 +	}
 +}
 +

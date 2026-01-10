@@ -48,6 +48,8 @@ struct Event {
   std::string album;
   bool durationValid{false};
   uint32_t durationMs{0};
+  bool elapsedValid{false};
+  uint32_t elapsedMs{0};
   std::vector<uint8_t> artwork;
   std::vector<uint8_t> pcm;
   uint32_t pcmRate{44100};
@@ -241,6 +243,9 @@ static void DispatchEvent(Instance* inst, Event evt) {
             if (event->durationValid) {
               obj.Set("durationMs", Napi::Number::New(env, event->durationMs));
             }
+            if (event->elapsedValid) {
+              obj.Set("elapsedMs", Napi::Number::New(env, event->elapsedMs));
+            }
             break;
           case EventType::Artwork: {
             obj.Set("type", "artwork");
@@ -332,6 +337,10 @@ static void RaopCallback(void* owner, raopsr_event_t event, ...) {
         if (meta->duration_valid) {
           evt.durationValid = true;
           evt.durationMs = meta->duration_ms;
+        }
+        if (meta->elapsed_valid) {
+          evt.elapsedValid = true;
+          evt.elapsedMs = meta->elapsed_ms;
         }
       }
       DispatchEvent(inst, evt);

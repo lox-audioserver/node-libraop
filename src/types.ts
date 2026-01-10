@@ -10,6 +10,7 @@ export type MetadataEvent = {
   artist?: string;
   album?: string;
   durationMs?: number;
+  elapsedMs?: number;
 };
 export type ArtworkEvent = {
   type: 'artwork';
