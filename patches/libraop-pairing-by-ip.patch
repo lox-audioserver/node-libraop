@@ -1,0 +1,260 @@
+--- a/src/pairing.cpp
++++ b/src/pairing.cpp
+@@ -16,6 +16,9 @@
+ #include <variant>
+ #include <cstdarg>
+ #include <cstdlib>
++#ifndef _WIN32
++#include <unistd.h>
++#endif
+ 
+ #include "openssl/ssl.h"
+ #include "openssl/sha.h"
+@@ -412,3 +415,247 @@
+ 	if (!mDNShandle) mdnssd_close(mDNS);
+ 	return true;
+ }
++
++bool AppleTVpairingByIp(struct mdnssd_handle_s* mDNShandle, char** pSecret, const char* target_ip, int port) {
++	char method[16], resource[16];
++	struct sockaddr_in peer = { };
++	key_data_t headers[16] = { };
++	int sock = -1;
++	int len;
++
++	(void)mDNShandle;
++
++	// make sure we can safely free these
++	A = a = NULL;
++
++	if (!target_ip || !*target_ip) {
++		fprintf(stderr, "Error: IP address is required for pairing\n");
++		fflush(stderr);
++		return false;
++	}
++
++	fprintf(stderr, "Pairing with device at %s:%d\n", target_ip, port);
++	fflush(stderr);
++
++	peer.sin_family = AF_INET;
++	peer.sin_addr.s_addr = inet_addr(target_ip);
++	peer.sin_port = htons(port > 0 ? port : 7000);
++
++	sock = socket(AF_INET, SOCK_STREAM, 0);
++	if (!tcp_connect(sock, peer)) return false;
++
++	kd_add(headers, "Connection", "keep-alive");
++	kd_add(headers, "Content-Type", "application/octet-stream");
++
++	char* buffer = http_send(sock, "POST /pair-pin-start HTTP/1.1", headers);
++	if (!buffer) {
++		kd_free(headers);
++		closesocket(sock);
++		return false;
++	}
++	NFREE(buffer);
++	kd_free(headers);
++
++	a = BN_new();
++	BN_rand(a, 256, -1, 0);
++
++	// request a PIN code to be displayed on the device
++#ifndef TEST_VECTOR
++	fprintf(stderr, "waiting for device to show PIN code...\n");
++	fflush(stderr);
++
++	// Device needs time to show prompt and display PIN, retry up to 10 seconds
++	bool parse_result = false;
++	for (int retry = 0; retry < 20 && !parse_result; retry++) {
++		parse_result = http_parse(sock, method, resource, NULL, headers, NULL, &len);
++		if (!parse_result && retry < 19) {
++			usleep(500000); // 500ms between retries = 10 seconds total
++		}
++	}
++
++	if (parse_result && strcasestr(resource, "200")) {
++		kd_free(headers);
++#else
++	if (1) {
++#endif
++		char pin[5];
++		fprintf(stderr, "enter PIN code displayed on AppleTV:\n");
++		fflush(stderr);
++#ifndef TEST_VECTOR
++		(void)!scanf("%4s", pin);
++#else
++		strcpy(pin, "1234");
++#endif
++
++		// Generate UDN from IP address (matches Music Assistant fork)
++		char UDN[16 + 1] = { };
++		snprintf(UDN, sizeof(UDN), "%02X%02X%02X%02X%02X%02X%02X%02X",
++			target_ip[0], target_ip[1], target_ip[2], target_ip[3],
++			target_ip[4], target_ip[5], target_ip[6], target_ip[7]);
++
++		bplist list;
++		list.add(2, "method", bplist::STRING, "pin",
++				"user", bplist::STRING, UDN);
++
++		auto data = list.toData();
++		kd_add(headers, "Server", "spotraop");
++		kd_add(headers, "Connection", "keep-alive");
++		kd_add(headers, "Content-Type", "application/x-apple-binary-plist");
++		kd_vadd(headers, "Content-Length", "%zu", data.size());
++
++		char* httpStr = http_send(sock, "POST /pair-setup-pin HTTP/1.1", headers);
++		if (!httpStr) {
++			kd_free(headers);
++			closesocket(sock);
++			return false;
++		}
++		send(sock, (const char*) data.data(), data.size(), 0);
++		fprintf(stderr, "step1 ... verifying pin\n");
++		fflush(stderr);
++		NFREE(httpStr);
++		kd_free(headers);
++
++		// send the PIN code and receive a salt and public key (B)
++		char* body = NULL;
++#ifndef TEST_VECTOR
++		if (http_parse(sock, method, resource, NULL, headers, &body, &len) && strcasestr(resource, "200")) {
++			kd_free(headers);
++#else
++		if (1) {
++			body = (char*)data.data();
++			len = data.size();
++#endif
++			bplist ATVresp((uint8_t*)body, len);
++			auto pk = ATVresp.getValueData("pk");
++			auto salt = ATVresp.getValueData("salt");
++
++			// compute M1 (proof)
++			auto M1 = computeM1(pk, salt, UDN, pin);
++
++			// send our public key A and our proof M1
++			bplist clientResponse;
++			std::vector<uint8_t> buffer(BN_num_bytes(A));
++			BN_bn2bin(A, buffer.data());
++
++			clientResponse.add(2, "pk", bplist::DATA, buffer.data(), buffer.size(),
++							  "proof", bplist::DATA, M1.data(), M1.size());
++
++			data = clientResponse.toData();
++			kd_add(headers, "Server", "spotraop");
++			kd_add(headers, "Connection", "keep-alive");
++			kd_add(headers, "Content-Type", "application/x-apple-binary-plist");
++			kd_vadd(headers, "Content-Length", "%zu", data.size());
++
++			char* httpStr = http_send(sock, "POST /pair-setup-pin HTTP/1.1", headers);
++			if (!httpStr) {
++				kd_free(headers);
++				closesocket(sock);
++				return false;
++			}
++			send(sock, (const char*)data.data(), data.size(), 0);
++			fprintf(stderr, "step2 ... verifying M1\n");
++			fflush(stderr);
++			NFREE(httpStr);
++			kd_free(headers);
++
++			// get the M2 proof (don't verify it) and sign K and a public key
++#ifndef TEST_VECTOR
++			if (http_parse(sock, method, resource, NULL, headers, &body, &len) && strcasestr(resource, "200")) {
++				kd_free(headers);
++#else
++			if (1) {
++#endif
++				// get a's public key
++				uint8_t a_pub[KEYSIZE];
++				BN_bn2bin(a, scratch);
++				EVP_PKEY* privKey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, scratch, KEYSIZE);
++				size_t size = KEYSIZE;
++				EVP_PKEY_get_raw_public_key(privKey, a_pub, &size);
++				EVP_PKEY_free(privKey);
++
++				SHA512_CTX digest;
++				uint8_t aesKey[16], aesIV[16];
++
++				SHA512_Init(&digest);
++				const char* feed = "Pair-Setup-AES-Key";
++				SHA512_Update(&digest, feed, strlen(feed));
++				SHA512_Update(&digest, K, sizeof(K));
++				SHA512_Final(scratch, &digest);
++				memcpy(aesKey, scratch, 16);
++
++				SHA512_Init(&digest);
++				feed = "Pair-Setup-AES-IV";
++				SHA512_Update(&digest, feed, strlen(feed));
++				SHA512_Update(&digest, K, sizeof(K));
++				SHA512_Final(scratch, &digest);
++				memcpy(aesIV, scratch, 16);
++				aesIV[15]++;
++
++				uint8_t epk[KEYSIZE], tag[KEYSIZE/2];
++
++				EVP_CIPHER_CTX* gcm = EVP_CIPHER_CTX_new();
++				EVP_EncryptInit(gcm, EVP_aes_128_gcm(), NULL, NULL);
++				EVP_CIPHER_CTX_ctrl(gcm, EVP_CTRL_GCM_SET_IVLEN, sizeof(aesIV), NULL);
++				EVP_EncryptInit(gcm, NULL, aesKey, aesIV);
++				EVP_EncryptUpdate(gcm, epk, &len, a_pub, sizeof(a_pub));
++				EVP_EncryptFinal(gcm, NULL, &len);
++				EVP_CIPHER_CTX_ctrl(gcm, EVP_CTRL_GCM_GET_TAG, sizeof(tag), tag);
++				EVP_CIPHER_CTX_free(gcm);
++
++				bplist list;
++				list.add(2, "epk", bplist::DATA, epk, sizeof(epk),
++						"authTag", bplist::DATA, tag, sizeof(tag));
++
++				auto data = list.toData();
++				kd_add(headers, "Server", "spotraop");
++				kd_add(headers, "Connection", "keep-alive");
++				kd_add(headers, "Content-Type", "application/x-apple-binary-plist");
++				kd_vadd(headers, "Content-Length", "%zu", data.size());
++
++				char* httpStr = http_send(sock, "POST /pair-setup-pin HTTP/1.1", headers);
++				if (!httpStr) {
++					kd_free(headers);
++					closesocket(sock);
++					return false;
++				}
++				send(sock, (const char*)data.data(), data.size(), 0);
++				fprintf(stderr, "step3 ... verifying AES\n");
++				fflush(stderr);
++				NFREE(httpStr);
++				kd_free(headers);
++
++#ifndef TEST_VECTOR
++				if (http_parse(sock, method, resource, NULL, headers, &body, &len) && strcasestr(resource, "200")) {
++					kd_free(headers);
++					auto a_hex = BN_bn2hex(a);
++					*pSecret = strdup(a_hex);
++					OPENSSL_free(a_hex);
++#else
++				if (1) {
++#endif
++
++					fprintf(stderr, "success!\nsecret is %s\n", *pSecret);
++					fflush(stderr);
++				} else {
++					fprintf(stderr, "can't authentify, error %s\n", resource);
++					fflush(stderr);
++				}
++			}
++		} else {
++			fprintf(stderr, "pin failed %s\n", resource);
++			fflush(stderr);
++		}
++
++		NFREE(body);
++	} else {
++		fprintf(stderr, "device did not respond to pairing request (response: %s)\n", resource);
++		fflush(stderr);
++	}
++
++	if (a) BN_free(a);
++	if (A) BN_free(A);
++
++	kd_free(headers);
++	if (sock != -1) closesocket(sock);
++	return pSecret && *pSecret;
++}

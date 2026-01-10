@@ -1,0 +1,10 @@
+--- a/src/raop_client.h
++++ b/src/raop_client.h
+@@ -170,6 +170,7 @@
+ struct mdnssd_handle_s;
+ 
+ bool AppleTVpairing(struct mdnssd_handle_s* mDNShandle, char** pUDN, char** pSecret);
++bool AppleTVpairingByIp(struct mdnssd_handle_s* mDNShandle, char** pSecret, const char* target_ip, int port);
+ bool AirPlayPassword(struct mdnssd_handle_s* mDNShandle, bool (*excluded)(char* model, char* name), char** UDN, char** passwd);
+ 
+ #endif

@@ -107,6 +107,14 @@ const result = pairWithAppleTv();
 console.log(result);
 ```
 
+### Apple TV pairing by IP (interactive)
+```ts
+import { pairWithAppleTvByIp } from '@lox-audioserver/node-libraop';
+
+const result = pairWithAppleTvByIp('192.168.1.165', 7000);
+console.log(result);
+```
+
 ### API
 - `startReceiver(options?, handler): number`  
   Starts the RAOP receiver. Returns a handle that you should pass to `stopReceiver`. The `handler` callback receives `RaopEvent` objects.
@@ -149,6 +157,9 @@ console.log(result);
 
 - `pairWithAppleTv(): { ok, udn?, secret? }`  
   Starts interactive Apple TV pairing via mDNS discovery (stdin/stdout prompts).
+
+- `pairWithAppleTvByIp(targetIp, port?): { ok, secret? }`  
+  Starts interactive Apple TV pairing via explicit IP/port (default port `7000`).
 
 - `setLogHandler(handler?, level?): void`  
   Forward libraop native logs into JavaScript. Pass `null` to disable. Levels: `error`, `warn` (default), `info`, `debug`, `sdebug`. Optional per-channel override: `setLogHandler(fn, 'info', 'debug', 'warn')` sets default `info`, RAOP to `debug`, util to `warn`. Callback receives `{ level, source, timestamp, line }`.

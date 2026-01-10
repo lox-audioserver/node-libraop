@@ -228,6 +228,28 @@ patch_metadata_duration() {
   git apply --directory "vendor/libraop" "$patch"
 }
 
+apply_local_patches() {
+  local patches_dir="$ROOT_DIR/patches"
+  if [ ! -d "$patches_dir" ]; then
+    return
+  fi
+
+  local patches=(
+    "$patches_dir/libraop-pairing-by-ip-header.patch"
+    "$patches_dir/libraop-pairing-by-ip.patch"
+  )
+
+  for patch in "${patches[@]}"; do
+    if [ -f "$patch" ]; then
+      if git apply --reverse --check --directory "vendor/libraop" "$patch" >/dev/null 2>&1; then
+        continue
+      fi
+      echo "Applying $(basename "$patch")"
+      git apply --directory "vendor/libraop" "$patch"
+    fi
+  done
+}
+
 required_paths=(
   "$LIB_DIR/src/raop_server.c"
   "$LIB_DIR/src/raop_streamer.c"
@@ -262,6 +284,7 @@ fi
 patch_libraop_for_msvc
 patch_cross_log
 patch_metadata_duration
+apply_local_patches
 bash "$ROOT_DIR/scripts/prune-vendor.sh"
 
 touch "$LIB_DIR/.prepared"

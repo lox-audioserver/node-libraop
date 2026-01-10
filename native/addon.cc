@@ -1018,6 +1018,38 @@ Napi::Value PairWithAppleTv(const Napi::CallbackInfo& info) {
   return result;
 }
 
+Napi::Value PairWithAppleTvByIp(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsString()) {
+    Napi::TypeError::New(env, "pairWithAppleTvByIp(targetIp, port?) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::string targetIp = info[0].ToString().Utf8Value();
+  int port = 7000;
+  if (info.Length() > 1 && info[1].IsNumber()) {
+    port = info[1].ToNumber().Int32Value();
+  }
+
+  if (targetIp.empty()) {
+    Napi::TypeError::New(env, "targetIp must be a non-empty string").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  EnsurePlatformInitialized(env);
+
+  char* secret = nullptr;
+  bool ok = AppleTVpairingByIp(nullptr, &secret, targetIp.c_str(), port);
+
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("ok", Napi::Boolean::New(env, ok));
+  if (secret) {
+    result.Set("secret", Napi::String::New(env, secret));
+    free(secret);
+  }
+  return result;
+}
+
 Napi::Value SetLogHandler(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   Napi::Function cb;
@@ -1085,6 +1117,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("setSenderArtwork", Napi::Function::New(env, SetSenderArtwork));
   exports.Set("sendKeepAlive", Napi::Function::New(env, SendKeepAlive));
   exports.Set("pairWithAppleTv", Napi::Function::New(env, PairWithAppleTv));
+  exports.Set("pairWithAppleTvByIp", Napi::Function::New(env, PairWithAppleTvByIp));
   exports.Set("setLogHandler", Napi::Function::New(env, SetLogHandler));
   return exports;
 }

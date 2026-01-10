@@ -29,6 +29,7 @@ type NativeBindings = {
   setSenderArtwork(handle: number, contentType: string, data: Buffer): boolean;
   sendKeepAlive(handle: number): boolean;
   pairWithAppleTv(): { ok: boolean; udn?: string; secret?: string };
+  pairWithAppleTvByIp(targetIp: string, port?: number): { ok: boolean; secret?: string };
   setLogHandler(handler: ((entry: LogEntry) => void) | null, level?: LogLevel, raopLevel?: LogLevel, utilLevel?: LogLevel): void;
 };
 
@@ -132,6 +133,13 @@ export function sendKeepAlive(handle: number): boolean {
  */
 export function pairWithAppleTv(): { ok: boolean; udn?: string; secret?: string } {
   return bindings.pairWithAppleTv();
+}
+
+/**
+ * Start interactive Apple TV pairing by IP/port.
+ */
+export function pairWithAppleTvByIp(targetIp: string, port?: number): { ok: boolean; secret?: string } {
+  return bindings.pairWithAppleTvByIp(targetIp, port);
 }
 
 /**
