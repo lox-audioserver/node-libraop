@@ -61,6 +61,12 @@ export type SenderOptions = {
   frameLength?: number;
   latencyFrames?: number;
   volume?: number;
+  et?: string;
+  md?: string;
+  auth?: boolean;
+  secret?: string;
+  passwd?: string;
+  local?: string;
 };
 
 export type SendResult = {

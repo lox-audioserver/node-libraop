@@ -612,6 +612,12 @@ Napi::Value StartSender(const Napi::CallbackInfo& info) {
   int frameLen = opts.Has("frameLength") ? static_cast<int>(opts.Get("frameLength").ToNumber().Uint32Value()) : DEFAULT_FRAMES_PER_CHUNK;
   int latencyFrames = opts.Has("latencyFrames") ? static_cast<int>(opts.Get("latencyFrames").ToNumber().Uint32Value()) : RAOP_LATENCY_MIN;
   int volume = opts.Has("volume") ? static_cast<int>(opts.Get("volume").ToNumber().Int32Value()) : 50;
+  std::string et = opts.Has("et") ? opts.Get("et").ToString().Utf8Value() : "";
+  std::string md = opts.Has("md") ? opts.Get("md").ToString().Utf8Value() : "";
+  bool auth = opts.Has("auth") ? opts.Get("auth").ToBoolean().Value() : false;
+  std::string secret = opts.Has("secret") ? opts.Get("secret").ToString().Utf8Value() : "";
+  std::string passwd = opts.Has("passwd") ? opts.Get("passwd").ToString().Utf8Value() : "";
+  std::string localStr = opts.Has("local") ? opts.Get("local").ToString().Utf8Value() : "";
 
   if (frameLen < 1) frameLen = 1;
   if (frameLen > MAX_FRAMES_PER_CHUNK) frameLen = MAX_FRAMES_PER_CHUNK;
@@ -640,14 +646,23 @@ Napi::Value StartSender(const Napi::CallbackInfo& info) {
 
   in_addr local{};
   local.s_addr = htonl(INADDR_ANY);
+  if (!localStr.empty() && inet_pton(AF_INET, localStr.c_str(), &local) != 1) {
+    Napi::TypeError::New(env, "local must be an IPv4 address").ThrowAsJavaScriptException();
+    return env.Null();
+  }
 
   auto inst = std::make_shared<SenderInstance>();
   inst->channels = channels;
   inst->sampleSize = sampleSize;
 
+  char* etPtr = et.empty() ? nullptr : const_cast<char*>(et.c_str());
+  char* mdPtr = md.empty() ? nullptr : const_cast<char*>(md.c_str());
+  char* secretPtr = secret.empty() ? nullptr : const_cast<char*>(secret.c_str());
+  char* passwdPtr = passwd.empty() ? nullptr : const_cast<char*>(passwd.c_str());
+
   inst->client = raopcl_create(local, 0, 0, nullptr, nullptr,
                                RAOP_PCM, frameLen, latencyFrames,
-                               RAOP_CLEAR, false, nullptr, nullptr, nullptr, nullptr,
+                               RAOP_CLEAR, auth, secretPtr, passwdPtr, etPtr, mdPtr,
                                sampleRate, sampleSize, channels, raopcl_float_volume(volume));
   if (!inst->client) {
     Napi::Error::New(env, "raopcl_create failed").ThrowAsJavaScriptException();

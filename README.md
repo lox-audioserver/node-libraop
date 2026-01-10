@@ -114,6 +114,7 @@ function maybeSend(pcm: Buffer) {
 ### Options
 All fields are optional; libraop defaults are applied when omitted.
 
+#### Receiver options
 | Option      | Type    | Default            | Description                                              |
 | ----------- | ------- | ------------------ | -------------------------------------------------------- |
 | `name`      | string  | `LoxAirplay`       | Friendly name advertised over RAOP.                      |
@@ -124,6 +125,24 @@ All fields are optional; libraop defaults are applied when omitted.
 | `portBase`  | number  | `6000`             | Base port for RAOP listener sockets.                     |
 | `portRange` | number  | `100`              | Number of ports available for the listener pool.         |
 | `host`      | string  | `0.0.0.0`          | Optional host override for binding and mDNS.             |
+
+#### Sender options
+| Option          | Type    | Default       | Description                                           |
+| --------------- | ------- | ------------- | ----------------------------------------------------- |
+| `target`        | string  | required      | Target IPv4 address.                                  |
+| `port`          | number  | `5000`        | Target RTSP port.                                     |
+| `sampleRate`    | number  | `44100`       | PCM sample rate in Hz.                                |
+| `channels`      | number  | `2`           | PCM channel count.                                    |
+| `sampleSize`    | number  | `2`           | PCM bytes per sample.                                 |
+| `frameLength`   | number  | `352`         | Frames per chunk (bounded by libraop limits).         |
+| `latencyFrames` | number  | `11025`       | Requested playback latency in frames.                 |
+| `volume`        | number  | `50`          | Initial volume (0-100).                               |
+| `et`            | string  | empty         | mDNS TXT `et` value for RTSP auth setup.              |
+| `md`            | string  | empty         | mDNS TXT `md` value for metadata capability flags.    |
+| `auth`          | boolean | `false`       | Whether RTSP auth is enabled.                         |
+| `secret`        | string  | empty         | Pairing secret (mDNS TXT `pk`-derived).               |
+| `passwd`        | string  | empty         | AirPlay password (mDNS TXT `pw`).                     |
+| `local`         | string  | `0.0.0.0`     | Local bind IPv4 address.                              |
 
 ### Events
 - `stream` — `{ port }`: Emitted when a new stream announces the data port.
