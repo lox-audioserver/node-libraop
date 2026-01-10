@@ -277,6 +277,15 @@ static void DispatchEvent(Instance* inst, Event evt) {
   }
 }
 
+static std::shared_ptr<SenderInstance> GetSenderInstance(int handle) {
+  std::lock_guard<std::mutex> guard(g_sender_mutex);
+  auto it = g_senders.find(handle);
+  if (it != g_senders.end()) {
+    return it->second;
+  }
+  return nullptr;
+}
+
 static void RaopCallback(void* owner, raopsr_event_t event, ...) {
   auto inst = static_cast<Instance*>(owner);
   if (!inst) return;
@@ -618,6 +627,8 @@ Napi::Value StartSender(const Napi::CallbackInfo& info) {
   std::string secret = opts.Has("secret") ? opts.Get("secret").ToString().Utf8Value() : "";
   std::string passwd = opts.Has("passwd") ? opts.Get("passwd").ToString().Utf8Value() : "";
   std::string localStr = opts.Has("local") ? opts.Get("local").ToString().Utf8Value() : "";
+  std::string dacpId = opts.Has("dacpId") ? opts.Get("dacpId").ToString().Utf8Value() : "";
+  std::string activeRemote = opts.Has("activeRemote") ? opts.Get("activeRemote").ToString().Utf8Value() : "";
 
   if (frameLen < 1) frameLen = 1;
   if (frameLen > MAX_FRAMES_PER_CHUNK) frameLen = MAX_FRAMES_PER_CHUNK;
@@ -659,8 +670,10 @@ Napi::Value StartSender(const Napi::CallbackInfo& info) {
   char* mdPtr = md.empty() ? nullptr : const_cast<char*>(md.c_str());
   char* secretPtr = secret.empty() ? nullptr : const_cast<char*>(secret.c_str());
   char* passwdPtr = passwd.empty() ? nullptr : const_cast<char*>(passwd.c_str());
+  char* dacpPtr = dacpId.empty() ? nullptr : const_cast<char*>(dacpId.c_str());
+  char* activeRemotePtr = activeRemote.empty() ? nullptr : const_cast<char*>(activeRemote.c_str());
 
-  inst->client = raopcl_create(local, 0, 0, nullptr, nullptr,
+  inst->client = raopcl_create(local, 0, 0, dacpPtr, activeRemotePtr,
                                RAOP_PCM, frameLen, latencyFrames,
                                RAOP_CLEAR, auth, secretPtr, passwdPtr, etPtr, mdPtr,
                                sampleRate, sampleSize, channels, raopcl_float_volume(volume));
@@ -722,14 +735,7 @@ Napi::Value SendChunk(const Napi::CallbackInfo& info) {
   int handle = info[0].ToNumber().Int32Value();
   Napi::Buffer<uint8_t> buf = info[1].As<Napi::Buffer<uint8_t>>();
 
-  std::shared_ptr<SenderInstance> inst;
-  {
-    std::lock_guard<std::mutex> guard(g_sender_mutex);
-    auto it = g_senders.find(handle);
-    if (it != g_senders.end()) {
-      inst = it->second;
-    }
-  }
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
   if (!inst) {
     Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
     return env.Null();
@@ -782,14 +788,7 @@ Napi::Value GetSenderState(const Napi::CallbackInfo& info) {
     return env.Null();
   }
   int handle = info[0].ToNumber().Int32Value();
-  std::shared_ptr<SenderInstance> inst;
-  {
-    std::lock_guard<std::mutex> guard(g_sender_mutex);
-    auto it = g_senders.find(handle);
-    if (it != g_senders.end()) {
-      inst = it->second;
-    }
-  }
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
   if (!inst) {
     Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
     return env.Null();
@@ -803,6 +802,218 @@ Napi::Value GetSenderState(const Napi::CallbackInfo& info) {
     result.Set("queuedFrames", Napi::Number::New(env, raopcl_queued_frames(inst->client)));
     result.Set("queueSize", Napi::Number::New(env, raopcl_queue_len(inst->client)));
     result.Set("latencyFrames", Napi::Number::New(env, raopcl_latency(inst->client)));
+  }
+  return result;
+}
+
+Napi::Value SenderControl(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsString()) {
+    Napi::TypeError::New(env, "senderControl(handle, command) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  std::string command = info[1].ToString().Utf8Value();
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool ok = true;
+  if (command == "pause") {
+    raopcl_pause(inst->client);
+    raopcl_flush(inst->client);
+  } else if (command == "stop") {
+    raopcl_stop(inst->client);
+  } else if (command == "play") {
+    uint64_t now = raopcl_get_ntp(nullptr);
+    uint64_t start_at =
+        now + MS2NTP(200) - TS2NTP(raopcl_latency(inst->client), raopcl_sample_rate(inst->client));
+    ok = raopcl_start_at(inst->client, start_at);
+  } else {
+    Napi::TypeError::New(env, "unsupported sender command").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  return Napi::Boolean::New(env, ok);
+}
+
+Napi::Value SetSenderVolume(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
+    Napi::TypeError::New(env, "setSenderVolume(handle, volume) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  int volume = info[1].ToNumber().Int32Value();
+  if (volume < 0 || volume > 100) {
+    Napi::TypeError::New(env, "volume must be between 0 and 100").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool ok = raopcl_set_volume(inst->client, raopcl_float_volume(volume));
+  return Napi::Boolean::New(env, ok);
+}
+
+Napi::Value SetSenderProgress(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsNumber() || !info[2].IsNumber()) {
+    Napi::TypeError::New(env, "setSenderProgress(handle, elapsedMs, durationMs) expected")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  uint32_t elapsedMs = info[1].ToNumber().Uint32Value();
+  uint32_t durationMs = info[2].ToNumber().Uint32Value();
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool ok = raopcl_set_progress_ms(inst->client, elapsedMs, durationMs);
+  return Napi::Boolean::New(env, ok);
+}
+
+Napi::Value SetSenderMetadata(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsObject()) {
+    Napi::TypeError::New(env, "setSenderMetadata(handle, metadata) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  Napi::Object meta = info[1].As<Napi::Object>();
+
+  std::string title = meta.Has("title") ? meta.Get("title").ToString().Utf8Value() : "";
+  std::string artist = meta.Has("artist") ? meta.Get("artist").ToString().Utf8Value() : "";
+  std::string album = meta.Has("album") ? meta.Get("album").ToString().Utf8Value() : "";
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool ok = raopcl_set_daap(inst->client, 4,
+                            "minm", 's', title.c_str(),
+                            "asar", 's', artist.c_str(),
+                            "asal", 's', album.c_str(),
+                            "astn", 'i', 1);
+  return Napi::Boolean::New(env, ok);
+}
+
+Napi::Value SetSenderArtwork(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsString() || !info[2].IsBuffer()) {
+    Napi::TypeError::New(env, "setSenderArtwork(handle, contentType, data) expected")
+        .ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  std::string contentType = info[1].ToString().Utf8Value();
+  Napi::Buffer<uint8_t> buf = info[2].As<Napi::Buffer<uint8_t>>();
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  if (contentType.empty()) {
+    Napi::TypeError::New(env, "contentType must be a non-empty string").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool ok = raopcl_set_artwork(inst->client, const_cast<char*>(contentType.c_str()),
+                               static_cast<int>(buf.Length()),
+                               reinterpret_cast<char*>(buf.Data()));
+  return Napi::Boolean::New(env, ok);
+}
+
+Napi::Value SendKeepAlive(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    Napi::TypeError::New(env, "sendKeepAlive(handle) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool ok = raopcl_keepalive(inst->client);
+  return Napi::Boolean::New(env, ok);
+}
+
+Napi::Value PairWithAppleTv(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() > 0 && !info[0].IsUndefined() && !info[0].IsNull()) {
+    Napi::TypeError::New(env, "pairWithAppleTv() expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  EnsurePlatformInitialized(env);
+
+  char* udn = nullptr;
+  char* secret = nullptr;
+  bool ok = AppleTVpairing(nullptr, &udn, &secret);
+
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("ok", Napi::Boolean::New(env, ok));
+  if (udn) {
+    result.Set("udn", Napi::String::New(env, udn));
+    free(udn);
+  }
+  if (secret) {
+    result.Set("secret", Napi::String::New(env, secret));
+    free(secret);
   }
   return result;
 }
@@ -867,6 +1078,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("stopSender", Napi::Function::New(env, StopSender));
   exports.Set("sendChunk", Napi::Function::New(env, SendChunk));
   exports.Set("getSenderState", Napi::Function::New(env, GetSenderState));
+  exports.Set("senderControl", Napi::Function::New(env, SenderControl));
+  exports.Set("setSenderVolume", Napi::Function::New(env, SetSenderVolume));
+  exports.Set("setSenderProgress", Napi::Function::New(env, SetSenderProgress));
+  exports.Set("setSenderMetadata", Napi::Function::New(env, SetSenderMetadata));
+  exports.Set("setSenderArtwork", Napi::Function::New(env, SetSenderArtwork));
+  exports.Set("sendKeepAlive", Napi::Function::New(env, SendKeepAlive));
+  exports.Set("pairWithAppleTv", Napi::Function::New(env, PairWithAppleTv));
   exports.Set("setLogHandler", Napi::Function::New(env, SetLogHandler));
   return exports;
 }

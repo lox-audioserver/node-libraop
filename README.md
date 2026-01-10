@@ -86,6 +86,27 @@ function maybeSend(pcm: Buffer) {
 }
 ```
 
+### Sender metadata, controls, and keepalive
+```ts
+import { senderControl, setSenderMetadata, setSenderProgress, setSenderArtwork, setSenderVolume, sendKeepAlive } from '@lox-audioserver/node-libraop';
+import fs from 'node:fs';
+
+senderControl(sender, 'play');
+setSenderMetadata(sender, { title: 'Track', artist: 'Artist', album: 'Album' });
+setSenderProgress(sender, 15_000, 180_000);
+setSenderVolume(sender, 60);
+setSenderArtwork(sender, 'image/jpeg', fs.readFileSync('cover.jpg'));
+sendKeepAlive(sender);
+```
+
+### Apple TV pairing (interactive)
+```ts
+import { pairWithAppleTv } from '@lox-audioserver/node-libraop';
+
+const result = pairWithAppleTv();
+console.log(result);
+```
+
 ### API
 - `startReceiver(options?, handler): number`  
   Starts the RAOP receiver. Returns a handle that you should pass to `stopReceiver`. The `handler` callback receives `RaopEvent` objects.
@@ -107,6 +128,27 @@ function maybeSend(pcm: Buffer) {
 
 - `getSenderState(handle): SenderState`  
   Returns connection status plus queue/latency stats without sending audio.
+
+- `senderControl(handle, command): boolean`  
+  Controls playback state for the sender (`play`, `pause`, `stop`).
+
+- `setSenderVolume(handle, volume): boolean`  
+  Sets the target volume (0-100).
+
+- `setSenderProgress(handle, elapsedMs, durationMs): boolean`  
+  Sends playback progress in milliseconds.
+
+- `setSenderMetadata(handle, metadata): boolean`  
+  Sends track metadata (`title`, `artist`, `album`).
+
+- `setSenderArtwork(handle, contentType, data): boolean`  
+  Sends artwork bytes with a content type (e.g. `image/jpeg`).
+
+- `sendKeepAlive(handle): boolean`  
+  Sends a keepalive to reduce playback dropouts on some devices.
+
+- `pairWithAppleTv(): { ok, udn?, secret? }`  
+  Starts interactive Apple TV pairing via mDNS discovery (stdin/stdout prompts).
 
 - `setLogHandler(handler?, level?): void`  
   Forward libraop native logs into JavaScript. Pass `null` to disable. Levels: `error`, `warn` (default), `info`, `debug`, `sdebug`. Optional per-channel override: `setLogHandler(fn, 'info', 'debug', 'warn')` sets default `info`, RAOP to `debug`, util to `warn`. Callback receives `{ level, source, timestamp, line }`.
@@ -137,6 +179,8 @@ All fields are optional; libraop defaults are applied when omitted.
 | `frameLength`   | number  | `352`         | Frames per chunk (bounded by libraop limits).         |
 | `latencyFrames` | number  | `11025`       | Requested playback latency in frames.                 |
 | `volume`        | number  | `50`          | Initial volume (0-100).                               |
+| `dacpId`        | string  | empty         | DACP-ID header value for remote control integration.  |
+| `activeRemote`  | string  | empty         | Active-Remote header value for remote control.        |
 | `et`            | string  | empty         | mDNS TXT `et` value for RTSP auth setup.              |
 | `md`            | string  | empty         | mDNS TXT `md` value for metadata capability flags.    |
 | `auth`          | boolean | `false`       | Whether RTSP auth is enabled.                         |

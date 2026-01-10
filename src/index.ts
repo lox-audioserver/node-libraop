@@ -1,6 +1,18 @@
 import path from 'node:path';
 import nodeGypBuild from 'node-gyp-build';
-import { EventHandler, LogEntry, LogLevel, ReceiverOptions, RaopEvent, RemoteCommand, SendResult, SenderOptions, SenderState } from './types';
+import {
+  EventHandler,
+  LogEntry,
+  LogLevel,
+  ReceiverOptions,
+  RaopEvent,
+  RemoteCommand,
+  SendResult,
+  SenderCommand,
+  SenderMetadata,
+  SenderOptions,
+  SenderState,
+} from './types';
 
 type NativeBindings = {
   startReceiver(options: Record<string, unknown>, handler: (event: RaopEvent) => void): number;
@@ -10,6 +22,13 @@ type NativeBindings = {
   stopSender(handle: number): void;
   sendChunk(handle: number, pcm: Buffer): SendResult;
   getSenderState(handle: number): SenderState;
+  senderControl(handle: number, command: SenderCommand): boolean;
+  setSenderVolume(handle: number, volume: number): boolean;
+  setSenderProgress(handle: number, elapsedMs: number, durationMs: number): boolean;
+  setSenderMetadata(handle: number, metadata: SenderMetadata): boolean;
+  setSenderArtwork(handle: number, contentType: string, data: Buffer): boolean;
+  sendKeepAlive(handle: number): boolean;
+  pairWithAppleTv(): { ok: boolean; udn?: string; secret?: string };
   setLogHandler(handler: ((entry: LogEntry) => void) | null, level?: LogLevel, raopLevel?: LogLevel, utilLevel?: LogLevel): void;
 };
 
@@ -64,6 +83,55 @@ export function stopSender(handle: number): void {
  */
 export function getSenderState(handle: number): SenderState {
   return bindings.getSenderState(handle);
+}
+
+/**
+ * Control sender playback state (play/pause/stop).
+ */
+export function senderControl(handle: number, command: SenderCommand): boolean {
+  return bindings.senderControl(handle, command);
+}
+
+/**
+ * Update AirPlay sender volume (0-100).
+ */
+export function setSenderVolume(handle: number, volume: number): boolean {
+  return bindings.setSenderVolume(handle, volume);
+}
+
+/**
+ * Update track progress in milliseconds.
+ */
+export function setSenderProgress(handle: number, elapsedMs: number, durationMs: number): boolean {
+  return bindings.setSenderProgress(handle, elapsedMs, durationMs);
+}
+
+/**
+ * Update track metadata (title/artist/album).
+ */
+export function setSenderMetadata(handle: number, metadata: SenderMetadata): boolean {
+  return bindings.setSenderMetadata(handle, metadata);
+}
+
+/**
+ * Send artwork bytes to the AirPlay target.
+ */
+export function setSenderArtwork(handle: number, contentType: string, data: Buffer): boolean {
+  return bindings.setSenderArtwork(handle, contentType, data);
+}
+
+/**
+ * Send a periodic keepalive to avoid some targets dropping playback.
+ */
+export function sendKeepAlive(handle: number): boolean {
+  return bindings.sendKeepAlive(handle);
+}
+
+/**
+ * Start interactive Apple TV pairing via mdns discovery.
+ */
+export function pairWithAppleTv(): { ok: boolean; udn?: string; secret?: string } {
+  return bindings.pairWithAppleTv();
 }
 
 /**

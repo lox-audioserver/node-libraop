@@ -14,6 +14,7 @@ export type MetadataEvent = {
 };
 
 export type RemoteCommand = 'play' | 'pause' | 'stop' | 'next' | 'prev' | 'previous';
+export type SenderCommand = 'play' | 'pause' | 'stop';
 export type ArtworkEvent = {
   type: 'artwork';
   title?: string;
@@ -61,12 +62,20 @@ export type SenderOptions = {
   frameLength?: number;
   latencyFrames?: number;
   volume?: number;
+  dacpId?: string;
+  activeRemote?: string;
   et?: string;
   md?: string;
   auth?: boolean;
   secret?: string;
   passwd?: string;
   local?: string;
+};
+
+export type SenderMetadata = {
+  title?: string;
+  artist?: string;
+  album?: string;
 };
 
 export type SendResult = {
