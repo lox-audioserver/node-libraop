@@ -12,6 +12,8 @@ export type MetadataEvent = {
   durationMs?: number;
   elapsedMs?: number;
 };
+
+export type RemoteCommand = 'play' | 'pause' | 'stop' | 'next' | 'prev' | 'previous';
 export type ArtworkEvent = {
   type: 'artwork';
   title?: string;

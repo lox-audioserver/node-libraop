@@ -221,7 +221,7 @@ patch_metadata_duration() {
   if [ ! -f "$LIB_DIR/src/raop_server.h" ] || [ ! -f "$LIB_DIR/src/raop_server.c" ]; then
     return
   fi
-  if grep -q "duration_ms" "$LIB_DIR/src/raop_server.h"; then
+  if git apply --reverse --check --directory "vendor/libraop" "$patch" >/dev/null 2>&1; then
     return
   fi
   echo "Applying libraop duration metadata patch"

@@ -1,10 +1,11 @@
 import path from 'node:path';
 import nodeGypBuild from 'node-gyp-build';
-import { EventHandler, LogEntry, LogLevel, ReceiverOptions, RaopEvent, SendResult, SenderOptions, SenderState } from './types';
+import { EventHandler, LogEntry, LogLevel, ReceiverOptions, RaopEvent, RemoteCommand, SendResult, SenderOptions, SenderState } from './types';
 
 type NativeBindings = {
   startReceiver(options: Record<string, unknown>, handler: (event: RaopEvent) => void): number;
   stopReceiver(handle: number): void;
+  sendRemoteCommand(handle: number, command: RemoteCommand): boolean;
   startSender(options: Record<string, unknown>): number;
   stopSender(handle: number): void;
   sendChunk(handle: number, pcm: Buffer): SendResult;
@@ -31,6 +32,13 @@ export function startReceiver(optionsOrHandler: ReceiverOptions | EventHandler, 
 
 export function stopReceiver(handle: number): void {
   bindings.stopReceiver(handle);
+}
+
+/**
+ * Send a remote transport command (play/pause/next/prev) to the active sender.
+ */
+export function sendRemoteCommand(handle: number, command: RemoteCommand): boolean {
+  return bindings.sendRemoteCommand(handle, command);
 }
 
 /**

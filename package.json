@@ -1,6 +1,6 @@
 {
   "name": "@lox-audioserver/node-libraop",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Node.js bindings for the libraop RAOP (AirPlay 1) receiver with prebuilt binaries.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

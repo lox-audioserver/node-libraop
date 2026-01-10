@@ -93,6 +93,9 @@ function maybeSend(pcm: Buffer) {
 - `stopReceiver(handle): void`  
   Stops the receiver associated with the provided handle.
 
+- `sendRemoteCommand(handle, command): boolean`  
+  Sends a transport command (`play`, `pause`, `stop`, `next`, `prev`/`previous`) to the active sender if available.
+
 - `startSender(options): number`  
   Connects to an AirPlay (RAOP) target and returns a handle used by `sendChunk`/`stopSender`.
 

@@ -538,6 +538,57 @@ Napi::Value Stop(const Napi::CallbackInfo& info) {
   return env.Null();
 }
 
+Napi::Value SendRemoteCommand(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsString()) {
+    Napi::TypeError::New(env, "sendRemoteCommand(handle, command) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  std::string command = info[1].ToString().Utf8Value();
+
+  std::shared_ptr<Instance> inst;
+  {
+    std::lock_guard<std::mutex> guard(g_instances_mutex);
+    auto it = g_instances.find(handle);
+    if (it != g_instances.end()) {
+      inst = it->second;
+    }
+  }
+  if (!inst) {
+    Napi::Error::New(env, "unknown receiver handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  const char* remoteCommand = nullptr;
+  if (command == "play") {
+    remoteCommand = "play";
+  } else if (command == "pause") {
+    remoteCommand = "pause";
+  } else if (command == "stop") {
+    remoteCommand = "stop";
+  } else if (command == "next") {
+    remoteCommand = "nextitem";
+  } else if (command == "prev" || command == "previous") {
+    remoteCommand = "previtem";
+  } else {
+    Napi::TypeError::New(env, "unsupported command").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+
+  bool sent = false;
+  {
+    std::lock_guard<std::mutex> lock(inst->mutex);
+    if (!inst->server) {
+      Napi::Error::New(env, "receiver is closed").ThrowAsJavaScriptException();
+      return env.Null();
+    }
+    sent = raopsr_remote_command(inst->server, remoteCommand);
+  }
+
+  return Napi::Boolean::New(env, sent);
+}
+
 Napi::Value StartSender(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 1 || !info[0].IsObject()) {
@@ -796,6 +847,7 @@ Napi::Value SetLogHandler(const Napi::CallbackInfo& info) {
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("startReceiver", Napi::Function::New(env, Start));
   exports.Set("stopReceiver", Napi::Function::New(env, Stop));
+  exports.Set("sendRemoteCommand", Napi::Function::New(env, SendRemoteCommand));
   exports.Set("startSender", Napi::Function::New(env, StartSender));
   exports.Set("stopSender", Napi::Function::New(env, StopSender));
   exports.Set("sendChunk", Napi::Function::New(env, SendChunk));
