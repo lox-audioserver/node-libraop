@@ -14,7 +14,7 @@ export type MetadataEvent = {
 };
 
 export type RemoteCommand = 'play' | 'pause' | 'stop' | 'next' | 'prev' | 'previous';
-export type SenderCommand = 'play' | 'pause' | 'stop';
+export type SenderCommand = 'play' | 'pause' | 'stop' | 'flush';
 export type ArtworkEvent = {
   type: 'artwork';
   title?: string;
@@ -56,6 +56,8 @@ export type ReceiverOptions = {
 export type SenderOptions = {
   target: string;
   port?: number;
+  /** Wire codec. Real AirPlay/RAOP devices generally require 'alac' (default); 'pcm' for receivers that accept raw PCM. */
+  codec?: 'alac' | 'pcm';
   sampleRate?: number;
   channels?: number;
   sampleSize?: number;

@@ -16,7 +16,7 @@
         "vendor/libraop/src/raop_client.c",
         "native/encoder_stub.c",
         "native/log_stub.c",
-        "native/alac_wrapper_stub.c",
+        "native/alac_wrapper.cpp",
         "vendor/libraop/crosstools/src/cross_log.c",
         "vendor/libraop/crosstools/src/cross_net.c",
         "vendor/libraop/crosstools/src/cross_ssl.c",
@@ -29,10 +29,14 @@
         "vendor/libraop/libmdns/mdnssd/mdnssd.c",
         "vendor/libraop/libcodecs/alac/codec/ALACBitUtilities.c",
         "vendor/libraop/libcodecs/alac/codec/ALACDecoder.cpp",
+        "vendor/libraop/libcodecs/alac/codec/ALACEncoder.cpp",
         "vendor/libraop/libcodecs/alac/codec/EndianPortable.c",
         "vendor/libraop/libcodecs/alac/codec/ag_dec.c",
+        "vendor/libraop/libcodecs/alac/codec/ag_enc.c",
         "vendor/libraop/libcodecs/alac/codec/dp_dec.c",
-        "vendor/libraop/libcodecs/alac/codec/matrix_dec.c"
+        "vendor/libraop/libcodecs/alac/codec/dp_enc.c",
+        "vendor/libraop/libcodecs/alac/codec/matrix_dec.c",
+        "vendor/libraop/libcodecs/alac/codec/matrix_enc.c"
       ],
       "include_dirs": [
         "native",
@@ -81,7 +85,7 @@
       "cflags_cc": [ "-fPIC", "-std=c++17" ],
       "cflags!": [ "-fno-exceptions" ],
       "cflags_cc!": [ "-fno-exceptions" ],
-      "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS", "_GNU_SOURCE", "OPENSSL_SUPPRESS_DEPRECATED", "PCM_ONLY", "NAPI_VERSION=8" ],
+      "defines": [ "NAPI_DISABLE_CPP_EXCEPTIONS", "_GNU_SOURCE", "OPENSSL_SUPPRESS_DEPRECATED", "NAPI_VERSION=8" ],
       "dependencies": []
     }
   ]

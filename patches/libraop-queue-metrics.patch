@@ -1,0 +1,35 @@
+--- a/src/raop_client.c	2026-06-06 13:10:36.988764706 +0200
++++ b/src/raop_client.c	2026-06-06 13:09:52.600004736 +0200
+@@ -212,6 +212,32 @@
+ }
+ 
+ /*----------------------------------------------------------------------------*/
++// Frames buffered ahead of the playback clock (head_ts - now_ts). Declared in
++// the header but not implemented upstream; added for node bindings that expose
++// buffer-depth metrics. Returns 0 before streaming / when drained.
++uint32_t raopcl_queued_frames(struct raopcl_s *p)
++{
++	uint64_t now_ts, head_ts;
++
++	if (!p) return 0;
++
++	pthread_mutex_lock(&p->mutex);
++	now_ts = p->pause_ts ? p->pause_ts : NTP2TS(raopcl_get_ntp(NULL), p->sample_rate);
++	head_ts = p->head_ts;
++	pthread_mutex_unlock(&p->mutex);
++
++	return head_ts > now_ts ? (uint32_t) (head_ts - now_ts) : 0;
++}
++
++/*----------------------------------------------------------------------------*/
++// Number of chunk-sized packets currently buffered ahead.
++uint32_t raopcl_queue_len(struct raopcl_s *p)
++{
++	if (!p || p->chunk_len <= 0) return 0;
++	return raopcl_queued_frames(p) / (uint32_t) p->chunk_len;
++}
++
++/*----------------------------------------------------------------------------*/
+ uint64_t raopcl_get_ntp(struct ntp_s* ntp)
+ {
+ 	uint64_t time = gettime_us();

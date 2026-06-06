@@ -629,6 +629,10 @@ Napi::Value StartSender(const Napi::CallbackInfo& info) {
   std::string localStr = opts.Has("local") ? opts.Get("local").ToString().Utf8Value() : "";
   std::string dacpId = opts.Has("dacpId") ? opts.Get("dacpId").ToString().Utf8Value() : "";
   std::string activeRemote = opts.Has("activeRemote") ? opts.Get("activeRemote").ToString().Utf8Value() : "";
+  // Codec selection: real AirPlay/RAOP devices generally require ALAC and reject
+  // raw PCM (RTSP 406). Default to ALAC; allow "pcm" for receivers that need it.
+  std::string codecName = opts.Has("codec") ? opts.Get("codec").ToString().Utf8Value() : "alac";
+  raop_codec_t codec = (codecName == "pcm") ? RAOP_PCM : RAOP_ALAC;
 
   if (frameLen < 1) frameLen = 1;
   if (frameLen > MAX_FRAMES_PER_CHUNK) frameLen = MAX_FRAMES_PER_CHUNK;
@@ -673,10 +677,13 @@ Napi::Value StartSender(const Napi::CallbackInfo& info) {
   char* dacpPtr = dacpId.empty() ? nullptr : const_cast<char*>(dacpId.c_str());
   char* activeRemotePtr = activeRemote.empty() ? nullptr : const_cast<char*>(activeRemote.c_str());
 
+  // libraop wants the sample size in BITS (used for the SDP bit-depth field and
+  // the ALAC encoder's mBitsPerChannel); our option is bytes-per-sample, so x8.
+  // inst->sampleSize stays in bytes for sendChunk frame-alignment math.
   inst->client = raopcl_create(local, 0, 0, dacpPtr, activeRemotePtr,
-                               RAOP_PCM, frameLen, latencyFrames,
+                               codec, frameLen, latencyFrames,
                                RAOP_CLEAR, auth, secretPtr, passwdPtr, etPtr, mdPtr,
-                               sampleRate, sampleSize, channels, raopcl_float_volume(volume));
+                               sampleRate, sampleSize * 8, channels, raopcl_float_volume(volume));
   if (!inst->client) {
     Napi::Error::New(env, "raopcl_create failed").ThrowAsJavaScriptException();
     return env.Null();
@@ -830,6 +837,11 @@ Napi::Value SenderControl(const Napi::CallbackInfo& info) {
   bool ok = true;
   if (command == "pause") {
     raopcl_pause(inst->client);
+    raopcl_flush(inst->client);
+  } else if (command == "flush") {
+    // Drop the device's buffered audio without pausing; streaming resumes on the
+    // next frames (re-anchored by raopcl_accept_frames). Used for track-change /
+    // seek so the new audio is heard promptly instead of after the old tail.
     raopcl_flush(inst->client);
   } else if (command == "stop") {
     raopcl_stop(inst->client);
