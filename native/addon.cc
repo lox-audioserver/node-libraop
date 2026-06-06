@@ -858,6 +858,44 @@ Napi::Value SenderControl(const Napi::CallbackInfo& info) {
   return Napi::Boolean::New(env, ok);
 }
 
+// Current local NTP clock (raopcl_get_ntp uses gettimeofday, so the value is the
+// same reference for every sender on this host). Returned as a BigInt to keep the
+// full 64-bit precision — a shared playback anchor needs sub-millisecond accuracy
+// (1ms ~= 44 frames of skew), which a JS double would lose.
+Napi::Value GetNtp(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  uint64_t ntp = raopcl_get_ntp(nullptr);
+  return Napi::BigInt::New(env, ntp);
+}
+
+// Anchor a sender's playback clock to an absolute NTP time. All members of a sync
+// group pass the SAME anchor so frame 0 (and thus every frame) maps to the same
+// NTP playout time across devices -> sample-accurate multiroom. Must be called
+// after startSender (RTSP RECORD) and before feeding any chunk.
+Napi::Value SenderStartAt(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsBigInt()) {
+    Napi::TypeError::New(env, "senderStartAt(handle, ntp:bigint) expected").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  int handle = info[0].ToNumber().Int32Value();
+  bool lossless = true;
+  uint64_t ntp = info[1].As<Napi::BigInt>().Uint64Value(&lossless);
+
+  std::shared_ptr<SenderInstance> inst = GetSenderInstance(handle);
+  if (!inst) {
+    Napi::Error::New(env, "unknown sender handle").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  std::lock_guard<std::mutex> lock(inst->mutex);
+  if (!inst->client) {
+    Napi::Error::New(env, "sender is closed").ThrowAsJavaScriptException();
+    return env.Null();
+  }
+  bool ok = raopcl_start_at(inst->client, ntp);
+  return Napi::Boolean::New(env, ok);
+}
+
 Napi::Value SetSenderVolume(const Napi::CallbackInfo& info) {
   Napi::Env env = info.Env();
   if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
@@ -1123,6 +1161,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("sendChunk", Napi::Function::New(env, SendChunk));
   exports.Set("getSenderState", Napi::Function::New(env, GetSenderState));
   exports.Set("senderControl", Napi::Function::New(env, SenderControl));
+  exports.Set("getNtp", Napi::Function::New(env, GetNtp));
+  exports.Set("senderStartAt", Napi::Function::New(env, SenderStartAt));
   exports.Set("setSenderVolume", Napi::Function::New(env, SetSenderVolume));
   exports.Set("setSenderProgress", Napi::Function::New(env, SetSenderProgress));
   exports.Set("setSenderMetadata", Napi::Function::New(env, SetSenderMetadata));

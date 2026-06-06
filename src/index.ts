@@ -23,6 +23,8 @@ type NativeBindings = {
   sendChunk(handle: number, pcm: Buffer): SendResult;
   getSenderState(handle: number): SenderState;
   senderControl(handle: number, command: SenderCommand): boolean;
+  getNtp(): bigint;
+  senderStartAt(handle: number, ntp: bigint): boolean;
   setSenderVolume(handle: number, volume: number): boolean;
   setSenderProgress(handle: number, elapsedMs: number, durationMs: number): boolean;
   setSenderMetadata(handle: number, metadata: SenderMetadata): boolean;
@@ -91,6 +93,24 @@ export function getSenderState(handle: number): SenderState {
  */
 export function senderControl(handle: number, command: SenderCommand): boolean {
   return bindings.senderControl(handle, command);
+}
+
+/**
+ * Current local NTP clock (same reference for every sender on this host). Use as
+ * the base for a shared playback anchor: compute `getNtp() + offset` once and pass
+ * it to senderStartAt() on every group member. BigInt to preserve sub-ms accuracy.
+ */
+export function getNtp(): bigint {
+  return bindings.getNtp();
+}
+
+/**
+ * Anchor a sender's playback clock to an absolute NTP time (from getNtp()). All
+ * members of a sync group pass the SAME anchor so identical frames play at the
+ * same time across devices. Call after startSender and before feeding chunks.
+ */
+export function senderStartAt(handle: number, ntp: bigint): boolean {
+  return bindings.senderStartAt(handle, ntp);
 }
 
 /**
