@@ -25,10 +25,21 @@ fetch_libraop() {
       git fetch origin
     fi
     git checkout -q "$LIB_COMMIT"
-    git submodule update --init --recursive --depth 1
+    # Only the submodules the build actually compiles (see binding.gyp sources):
+    # crosstools, dmap-parser, libmdns (+ its mdnssd/mdnssvc) and libcodecs' alac
+    # codec. We link the SYSTEM OpenSSL, so a plain `--recursive` is both wasteful
+    # and fatal here: it drags in the entire libopenssl/openssl tree (boringssl,
+    # krb5, pyca, wycheproof, ...) plus a dozen unused codecs — gigabytes, and the
+    # deep .git/modules nesting then breaks the cleanup below. curve25519 and the
+    # Windows-only libpthreads4w aren't needed either.
+    git submodule update --init --depth 1 crosstools dmap-parser libmdns libcodecs
+    git -C libmdns submodule update --init --depth 1
+    git -C libcodecs submodule update --init --depth 1 alac
   )
-  # Strip git metadata to keep the vendor tree clean.
-  find "$LIB_DIR" -name ".git" -type d -prune -exec rm -rf {} +
+  # Strip git metadata to keep the vendor tree clean. Best-effort: the build only
+  # needs the sources, so a cleanup hiccup must not fail the install.
+  chmod -R u+w "$LIB_DIR/.git" 2>/dev/null || true
+  find "$LIB_DIR" -name ".git" -prune -exec rm -rf {} + 2>/dev/null || true
 }
 
 patch_libraop_for_msvc() {
