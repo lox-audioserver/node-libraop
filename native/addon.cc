@@ -836,8 +836,15 @@ Napi::Value SenderControl(const Napi::CallbackInfo& info) {
 
   bool ok = true;
   if (command == "pause") {
+    // Pause WITHOUT flushing: raopcl_pause freezes the playout clock (pause_ts =
+    // head_ts) but keeps the device's buffered audio intact. On resume, the "play"
+    // command's raopcl_start_at takes the "restarting w/ pause" branch in
+    // raopcl_accept_frames, which re-sends the client-side backlog from pause_ts and
+    // resumes from the exact pause point INSTANTLY. Flushing here (RTSP FLUSH) would
+    // drop the device buffer and force a full re-buffer (~latency) on resume, which
+    // is heard as a multi-second delay before audio returns. Use "flush" / "stop"
+    // explicitly when the buffer must be dropped (track-change / teardown).
     raopcl_pause(inst->client);
-    raopcl_flush(inst->client);
   } else if (command == "flush") {
     // Drop the device's buffered audio without pausing; streaming resumes on the
     // next frames (re-anchored by raopcl_accept_frames). Used for track-change /
