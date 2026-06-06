@@ -10,10 +10,21 @@ LIB_COMMIT="${LIB_COMMIT:-81c2182649da8645ac2a58b78e9f370c79a4165b}"
 fetch_libraop() {
   echo "Fetching libraop sources from $LIB_REPO@$LIB_COMMIT"
   rm -rf "$LIB_DIR"
-  git clone --depth 1 "$LIB_REPO" "$LIB_DIR"
+  mkdir -p "$LIB_DIR"
   (
     cd "$LIB_DIR"
-    git checkout "$LIB_COMMIT"
+    git init -q
+    git remote add origin "$LIB_REPO"
+    # Fetch the exact pinned commit. `clone --depth 1` only fetches the default
+    # branch HEAD, so a later `checkout <commit>` fails once upstream advances
+    # past the pin ("fatal: unable to read tree"). Fetch the SHA directly
+    # (GitHub allows fetching reachable SHAs); fall back to a full fetch if the
+    # server refuses a bare-SHA want.
+    if ! git fetch --depth 1 origin "$LIB_COMMIT"; then
+      echo "Shallow SHA fetch refused; falling back to full fetch"
+      git fetch origin
+    fi
+    git checkout -q "$LIB_COMMIT"
     git submodule update --init --recursive --depth 1
   )
   # Strip git metadata to keep the vendor tree clean.
