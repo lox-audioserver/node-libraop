@@ -1,0 +1,181 @@
+--- a/src/raop_server.c
++++ b/src/raop_server.c
+@@ -380,18 +380,21 @@
+ /*----------------------------------------------------------------------------*/
+ static bool handle_rtsp(raopsr_t *ctx, int sock)
+ {
+-	char *buf = NULL, *body = NULL, method[16] = "";
++	char *buf = NULL, *body = NULL, method[16] = "", resource[64] = "";
+ 	key_data_t headers[64], resp[16] = { {NULL, NULL} };
+ 	int len;
+ 	char *response = NULL;
+ 
+-	if (!http_parse(sock, method, NULL, NULL, headers, &body, &len)) {
++	if (!http_parse(sock, method, resource, NULL, headers, &body, &len)) {
+ 		NFREE(body);
+ 		kd_free(headers);
+ 		return false;
+ 	}
+ 
+-	if (strcmp(method, "OPTIONS")) {
++	// keep-alives arrive every couple of seconds; don't log them
++	bool feedback = !strcmp(method, "POST") && strstr(resource, "/feedback");
++
++	if (strcmp(method, "OPTIONS") && !feedback) {
+ 		LOG_INFO("[%p]: received %s", ctx, method);
+ 	}
+ 
+@@ -461,6 +464,19 @@
+ 			NFREE(p);
+ 		}
+ 
++		// the rtpmap is authoritative for the payload: raw PCM senders (e.g.
++		// pyatv) announce L16, some with ALAC-style fmtp params that must be
++		// ignored; pass a marker so the streamer skips the ALAC decoder
++		if ((p = strcasestr(body, "rtpmap")) != NULL) {
++			char *rtpmap = strextract(p, ":", "\r\n");
++			if (rtpmap && strcasestr(rtpmap, "L16")) {
++				NFREE(ctx->rtsp.fmtp);
++				ctx->rtsp.fmtp = strdup("L16");
++				LOG_INFO("[%p]: L16 (raw PCM) stream announced", ctx);
++			}
++			NFREE(rtpmap);
++		}
++
+ 		// on announce, search remote
+ 		if ((buf = kd_lookup(headers, "DACP-ID")) != NULL) strcpy(ctx->active_remote.DACPid, buf);
+ 		if ((buf = kd_lookup(headers, "Active-Remote")) != NULL) strcpy(ctx->active_remote.id, buf);
+@@ -490,7 +506,9 @@
+ 			(void) !asprintf(&transport, "RTP/AVP/UDP;unicast;mode=record;control_port=%u;timing_port=%u;server_port=%u", ht.cport, ht.tport, ht.aport);
+ 			LOG_DEBUG("[%p]: http=(%hu) audio=(%hu:%hu), timing=(%hu:%hu), control=(%hu:%hu)", ctx, ht.hport, 0, ht.aport, tport, ht.tport, cport, ht.cport);
+ 			kd_add(resp, "Transport", transport);
+-			kd_add(resp, "Session", "DEADBEEF");
++			// senders parse the session id as an integer (RTSP allows any token,
++			// but e.g. pyatv does int(headers["Session"]))
++			kd_add(resp, "Session", "1");
+ 			free(transport);
+ 		} else {
+ 			response = "RTSP/1.0 500 Internal Error";
+@@ -591,9 +609,11 @@
+ 				ctx->raop_cb(ctx->owner, RAOP_ARTWORK, &ctx->metadata, body, len);
+ 				raopst_metadata(ctx->ht, &ctx->metadata);
+ 		}
++	} else if (feedback) {
++		// AirPlay keep-alive; a 200 with the CSeq echoed is all a sender needs
+ 	} else {
+ 		response = "RTSP/1.0 501 Not Implemented";
+-    	LOG_ERROR("[%p]: unknown/unhandled method %s", ctx, method);
++    	LOG_ERROR("[%p]: unknown/unhandled method %s %s", ctx, method, resource);
+ 	}
+ 
+ 	// don't need to free "buf" because kd_lookup return a pointer, not a strdup
+@@ -601,10 +621,12 @@
+ 	kd_add(resp, "Audio-Jack-Status", "connected; type=analog");
+ 	kd_add(resp, "CSeq", kd_lookup(headers, "CSeq"));
+ 
++	// error responses must carry the headers too: senders match responses to
++	// requests by the echoed CSeq and time out on a reply without one
+ 	if (!response) buf = http_send(sock, "RTSP/1.0 200 OK", resp);
+-	else buf = http_send(sock, response, NULL);
++	else buf = http_send(sock, response, resp);
+ 
+-	if (strcmp(method, "OPTIONS")) {
++	if (strcmp(method, "OPTIONS") && !feedback) {
+ 		LOG_INFO("[%p]: responding:\n%s", ctx, buf ? buf : "<void>");
+ 	}
+ 
+--- a/src/raop_streamer.c
++++ b/src/raop_streamer.c
+@@ -70,7 +70,7 @@
+ 	bool running;
+ 	unsigned char aesiv[16];
+ 	AES_KEY aes;
+-	bool decrypt, range;
++	bool decrypt, range, pcm;
+ 	int frame_size;
+ 	int in_frames, out_frames;
+ 	struct in_addr host, peer;
+@@ -234,18 +234,25 @@
+ 	}
+ 
+ 	memset(fmtp, 0, sizeof(fmtp));
+-	for (int i = 0; (arg = strsep(&fmtpstr, " \t")); i++) fmtp[i] = atoi(arg);
+-
+-	ctx->frame_size = fmtp[1];
++	// raw PCM senders (e.g. pyatv) announce an L16 rtpmap and no fmtp line
++	if (fmtpstr && !strcasecmp(fmtpstr, "L16")) {
++		ctx->pcm = true;
++		ctx->frame_size = 352;
++	} else {
++		for (int i = 0; (arg = strsep(&fmtpstr, " \t")); i++) fmtp[i] = atoi(arg);
++		ctx->frame_size = fmtp[1];
++	}
+ 	ctx->silence_frame = (char*) calloc(ctx->frame_size, 4);
+ 	if ((p = strchr(latencies, ':')) != NULL) {
+ 		ctx->delay = atoi(p + 1);
+ 		ctx->delay = (ctx->delay * 44100) / (ctx->frame_size * 1000);
+ 	}
+ 
+-	// alac decoder
+-	ctx->alac_codec = alac_init(fmtp);
+-	rc &= ctx->alac_codec != NULL;
++	// alac decoder (L16 needs none)
++	if (!ctx->pcm) {
++		ctx->alac_codec = alac_init(fmtp);
++		rc &= ctx->alac_codec != NULL;
++	}
+ 
+ 	buffer_alloc(ctx->audio_buffer, ctx->frame_size*4);
+ 
+@@ -314,7 +321,7 @@
+ 	shutdown_socket(ctx->http_listener);
+ 	for (int i = 0; i < 3; i++) if (ctx->rtp_sockets[i].sock > 0) closesocket(ctx->rtp_sockets[i].sock);
+ 
+-	delete_alac(ctx->alac_codec);
++	if (ctx->alac_codec) delete_alac(ctx->alac_codec);
+ 	encoder_delete(ctx->encoder);
+ 
+ 	pthread_mutex_destroy(&ctx->ab_mutex);
+@@ -404,13 +411,24 @@
+ 	int aeslen;
+ 	assert(len<=MAX_PACKET);
+ 
++	unsigned char *payload = (unsigned char*) buf;
++
+ 	if (ctx->decrypt) {
+ 		aeslen = len & ~0xf;
+ 		memcpy(iv, ctx->aesiv, sizeof(iv));
+ 		AES_cbc_encrypt((unsigned char*)buf, packet, aeslen, &ctx->aes, iv, AES_DECRYPT);
+ 		memcpy(packet+aeslen, buf+aeslen, len-aeslen);
+-		decode_frame(ctx->alac_codec, packet, dest, outsize);
+-	} else decode_frame(ctx->alac_codec, (unsigned char*) buf, dest, outsize);
++		payload = packet;
++	}
++
++	if (ctx->pcm) {
++		// L16 is network (big) endian raw PCM; just swap into the output buffer
++		int bytes = min(len, ctx->frame_size * 4);
++		for (int i = 0; i < bytes / 2; i++) dest[i] = (int16_t) ((payload[2*i] << 8) | payload[2*i+1]);
++		*outsize = bytes;
++	} else {
++		decode_frame(ctx->alac_codec, payload, dest, outsize);
++	}
+ }
+ 
+ /*---------------------------------------------------------------------------*/
+--- a/crosstools/src/cross_net.c
++++ b/crosstools/src/cross_net.c
+@@ -997,9 +997,10 @@
+ 	bool res = http_parse_simple(sock, &request, rkd, body, len);
+ 
+ 	if (res && request) {
+-		if (method) sscanf(request, "%s", method);
+-		if (resource) sscanf(request, "%*s%s", resource);
+-		if (proto) sscanf(request, "%*s%*s%s", proto);
++		// callers pass method[16], resource[64] and proto[16] buffers
++		if (method) sscanf(request, "%15s", method);
++		if (resource) sscanf(request, "%*s%63s", resource);
++		if (proto) sscanf(request, "%*s%*s%15s", proto);
+ 	}
+ 
+ 	if (request) free(request);

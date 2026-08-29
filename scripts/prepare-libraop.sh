@@ -260,6 +260,7 @@ apply_local_patches() {
     "$patches_dir/libraop-pairing-by-ip-header.patch"
     "$patches_dir/libraop-pairing-by-ip.patch"
     "$patches_dir/libraop-queue-metrics.patch"
+    "$patches_dir/libraop-rtsp-interop.patch"
   )
 
   for patch in "${patches[@]}"; do
