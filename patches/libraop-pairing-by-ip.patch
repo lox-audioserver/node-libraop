@@ -16,7 +16,7 @@
  }
 +
 +bool AppleTVpairingByIp(struct mdnssd_handle_s* mDNShandle, char** pSecret, const char* target_ip, int port) {
-+	char method[16], resource[16];
++	char method[16], resource[64];
 +	struct sockaddr_in peer = { };
 +	key_data_t headers[16] = { };
 +	int sock = -1;
